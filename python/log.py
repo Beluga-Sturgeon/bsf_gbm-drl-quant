@@ -3,9 +3,28 @@
 import sys
 import pandas as pd
 import matplotlib.pyplot as plt
+import os
+
+def remove_suffix(string, suffix):
+    if string.endswith(suffix):
+        return string[:-len(suffix)]
+    return string
+
+def process_string(string):
+    if string.endswith('-test'):
+        return remove_suffix(string, '-test')
+    elif string.endswith('-train'):
+        return remove_suffix(string, '-train')
+    return string
+
+
 
 path = sys.argv[1]
-log = pd.read_csv("./res/log")
+ticker = process_string(path)
+if not os.path.exists(f"./res/{ticker}_log"):
+    with open(f"./res/{ticker}_log", 'w') as file:
+        file.write('')
+log = pd.read_csv(f"./res/{ticker}_log")
 
 plt.figure(figsize=(30,20))
 

@@ -4,6 +4,7 @@ import sys
 import math
 import numpy as np
 import pandas as pd
+import os
 
 def annualized_return(hist):
     years = 0
@@ -31,9 +32,10 @@ def maximum_drawdown(hist):
 
 if __name__ == "__main__":
     mode = sys.argv[1]
+    ticker = sys.argv[2]
     if mode == "push":
-        ticker = sys.argv[2]
-        log = pd.read_csv("./res/log")
+
+        log = pd.read_csv(f"./res/{ticker}_log")
 
         benchmark_annualized, benchmark_returns = annualized_return(log["benchmark"])
         model_annualized, model_returns = annualized_return(log["model"])
@@ -47,14 +49,19 @@ if __name__ == "__main__":
         benchmark_mdd = maximum_drawdown(log["benchmark"])
         model_mdd = maximum_drawdown(log["model"])
 
-        stats = open("./res/stats", "a")
+
+        if not os.path.exists(f"./res/{ticker}_stats"):
+            with open(f"./res/{ticker}_stats", 'w') as file:
+                file.write('')
+
+        stats = open(f"./res/{ticker}_stats", "a")
         stats.write("{},{},{},{},{},{},{},{},{}\n"
                     .format(ticker, benchmark_annualized, benchmark_stdev, benchmark_sharpe, benchmark_mdd,
                             model_annualized, model_stdev, model_sharpe, model_mdd))
         stats.close()
     
     elif mode == "summary":
-        stats = [line.replace("\n", "").split(",")[1:] for line in open("./res/stats", "r").readlines()]
+        stats = [line.replace("\n", "").split(",")[1:] for line in open(f"./res/{ticker}_stats", "r").readlines()]
         stats = np.array([[float(val) for val in line] for line in stats]).T
 
         benchmark_annualized = stats[0].mean()

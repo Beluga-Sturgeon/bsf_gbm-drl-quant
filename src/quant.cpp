@@ -187,7 +187,7 @@ void Quant::sgd(Memory &memory, double alpha, double LAMBDA) {
 
 void Quant::test() {
     for(std::string &ticker: tickers) {
-        std::ofstream out("./res/log");
+        std::ofstream out("./res/" + ticker + "_log");
         out << "X,";
         for(std::string &indicator: indicators)
             out << indicator << ",";
@@ -214,10 +214,9 @@ void Quant::test() {
         out.close();
         std::system(("./python/log.py " + ticker + "-test").c_str());
         std::system(("./python/stats.py push " + ticker).c_str());
+        std::system(("./python/stats.py summary " + ticker).c_str());
         std::system(("./python/analytics.py " + ticker).c_str());
     }
-
-    std::system("./python/stats.py summary");
 }
 
 void Quant::run() {

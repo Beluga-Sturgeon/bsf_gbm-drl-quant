@@ -6,7 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 ticker = sys.argv[1]
-log = pd.read_csv("./res/log")
+log = pd.read_csv(f"./res/{ticker}_log")
 
 plt.figure(figsize=(15,8))
 

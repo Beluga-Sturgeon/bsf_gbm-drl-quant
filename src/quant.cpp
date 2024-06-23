@@ -94,7 +94,7 @@ void Quant::build() {
 
     std::shuffle(tickers.begin(), tickers.end(), *seed);
     for(std::string &ticker: tickers) {
-        std::ofstream out("./res/log");
+        std::ofstream out("./res/" + ticker + "_log");
         out << "X,";
         for(std::string &indicator: indicators)
             out << indicator << ",";

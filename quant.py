@@ -1,12 +1,14 @@
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import numpy as np
 import subprocess
 import os
 import random
 from threading import Thread
-
+from net import Net, relu, relu_prime
+from gbm import vscore, OBS, EPOCH, EXT
+from data import read_csv, standardize, fix_dsp
+import torch.nn.functional as F
+import pandas as pd 
 LOOK_BACK = 100
 TICKER = 0
 
@@ -27,36 +29,39 @@ class Quant:
         self.action_space = [-1.0, 0.0, 1.0]  # short, idle, long
 
     def init(self, shape):
-        self.agent = nn.Sequential()
-        self.target = nn.Sequential()
+        self.agent = Net()
+        self.target = Net()
         for l in range(len(shape)):
             in_features, out_features = shape[l]
-            self.agent.add_module(f"fc{l}", nn.Linear(in_features, out_features))
-            self.target.add_module(f"fc{l}", nn.Linear(in_features, out_features))
+            self.agent.add_layer(in_features, out_features)
+            self.target.add_layer(in_features, out_features)
+        self.agent.init(seed=self.seed)
         self.sync()
 
-    def sync(self):
-        for target_param, param in zip(self.target.parameters(), self.agent.parameters()):
-            target_param.data.copy_(param.data)
-
     def generate_environment(self, ticker):
-        cmd = f"python3 ./python/download.py {ticker} " + " ".join(self.indicators)
+        cmd = f"./python/download.py {ticker} " + " ".join(self.indicators)
+        print("running ", cmd)
         subprocess.run(cmd, shell=True)
 
         merge = "./data/merge.csv"
-        raw = np.genfromtxt(merge, delimiter=',')
-        env = [[] for _ in range(raw.shape[0] + 1)]
+        raw = read_csv(merge)
+        print("raw data:", raw)
+        env = [[] for _ in range(len(raw) + 1)]
+        print("initial env:", env)
 
         threads = []
-        for i in range(raw.shape[0]):
-            th = Thread(target=self.vscore, args=(raw[i], env[i + 1]))
-            threads.append(th)
-            th.start()
-        for th in threads:
-            th.join()
 
-        env[TICKER] = raw[TICKER][LOOK_BACK - 1:]
+        def vscore_wrapper(raw_row, env_row, seed):
+            print("starting vscore with raw_row:", raw_row)
+            vscore(raw_row, env_row, seed)
+            print("finished vscore with env_row:", env_row)
 
+
+        for i in range(len(raw)):
+            vscore_wrapper(raw[i], env[i + 1], self.seed)
+
+        env[TICKER] = raw[TICKER][OBS - 1:]
+        print("final env:", env)
         return env
 
     def sample_state(self, env, t):
@@ -67,10 +72,9 @@ class Quant:
         return state
 
     def greedy(self, state):
-        state_tensor = torch.FloatTensor(state).unsqueeze(0)
-        q_values = self.agent(state_tensor)
-        _, action = torch.max(q_values, 1)
-        return action.item()
+        q_values = self.agent.predict(state)
+        action = np.argmax(q_values)
+        return action
 
     def epsilon_greedy(self, state, eps):
         if random.random() < eps:
@@ -96,29 +100,42 @@ class Quant:
         MSE = 0.0
         experiences = 0
 
+        print("Constants initialized")
         random.shuffle(self.tickers)
         for ticker in self.tickers:
             with open(f"./res/{ticker}_log", 'w') as out:
-                out.write("X," + ",".join(self.indicators) + ",action,benchmark,model\n")
+                header = "X," + ",".join(self.indicators) + ",action,benchmark,model\n"
+                print(f"Writing header to file: {header}")
+                
+                # Write the header to the file
+                out.write(header)
+                out.flush()  # Ensure the buffer is flushed
+                os.fsync(out.fileno()) 
+
+
+
+                print(f"Processing ticker: {ticker}")
                 benchmark = 1.0
                 model = 1.0
 
+                print("generating environment..")
                 env = self.generate_environment(ticker)
                 START = LOOK_BACK - 1
                 END = len(env[TICKER]) - 2
                 for t in range(START, END + 1):
+                    print(f"Processing time step: {t}")
                     if experiences <= CAPACITY:
                         EPS = (EPS_MIN - EPS_INIT) * experiences / CAPACITY + EPS_INIT
                     state = self.sample_state(env, t)
                     action = self.epsilon_greedy(state, EPS)
-                    q_value = self.agent(torch.FloatTensor(state).unsqueeze(0))[0, action].item()
+                    q_value = self.agent.layer(-1).node(action).sum()
 
                     next_state = self.sample_state(env, t + 1)
-                    next_q_values = self.target(torch.FloatTensor(next_state).unsqueeze(0))
+                    next_q_values = self.target.predict(next_state)
 
                     diff = (env[TICKER][t + 1] - env[TICKER][t]) / env[TICKER][t]
                     observed_reward = self.action_space[action] if diff >= 0.0 else -self.action_space[action]
-                    optimal = observed_reward + GAMMA * torch.max(next_q_values).item()
+                    optimal = observed_reward + GAMMA * max(next_q_values)
 
                     benchmark *= 1.0 + diff
                     model *= 1.0 + diff * self.action_space[action]
@@ -140,22 +157,27 @@ class Quant:
                             self.sgd(replay[k], ALPHA, LAMBDA)
                         replay = replay[BATCH_SIZE:]
 
+                    if experiences > CAPACITY:
+                        break
+
                 self.sync()
                 out.close()
-                subprocess.run(f"python3 ./python/log.py {ticker}-train", shell=True)
+                subprocess.run(f"./python/log.py {ticker}-train", shell=True)
 
         self.save()
+        print("done")
 
     def sgd(self, memory, alpha, LAMBDA):
-        state_tensor = torch.FloatTensor(memory.state).unsqueeze(0)
-        q_values = self.agent(state_tensor)
-        loss = (memory.optimal - q_values[0, memory.action]) ** 2
-        self.agent.zero_grad()
+        state = torch.tensor(memory.state, dtype=torch.float32)
+        optimal = torch.tensor(memory.optimal, dtype=torch.float32)
+        
+        self.optimizer.zero_grad()
+        q_values = self.agent(state)
+        
+        loss = F.mse_loss(q_values[memory.action], optimal)
         loss.backward()
-        with torch.no_grad():
-            for param in self.agent.parameters():
-                param -= alpha * param.grad
-                param -= LAMBDA * param
+        
+        self.optimizer.step()
 
     def test(self):
         for ticker in self.tickers:
@@ -179,10 +201,10 @@ class Quant:
                     print(f"T={t} @ {ticker} ACTION={action} DIFF={diff} BENCH={benchmark} MODEL={model}")
 
                 out.close()
-                subprocess.run(f"python3 ./python/log.py {ticker}-test", shell=True)
-                subprocess.run(f"python3 ./python/stats.py push {ticker}", shell=True)
-                subprocess.run(f"python3 ./python/stats.py summary {ticker}", shell=True)
-                subprocess.run(f"python3 ./python/analytics.py {ticker}", shell=True)
+                subprocess.run(f"./python/log.py {ticker}-test", shell=True)
+                subprocess.run(f"./python/stats.py push {ticker}", shell=True)
+                subprocess.run(f"./python/stats.py summary {ticker}", shell=True)
+                subprocess.run(f"./python/analytics.py {ticker}", shell=True)
 
     def run(self):
         for ticker in self.tickers:
@@ -191,30 +213,28 @@ class Quant:
             action = self.greedy(state)
             print(f"{ticker}: {action}")
 
+    def sync(self):
+        self.target.load_state_dict(self.agent.state_dict())
+
     def save(self):
-        with open(self.checkpoint, 'w') as out:
-            for param in self.agent.parameters():
-                out.write(" ".join(map(str, param.data.numpy().flatten())) + "\n")
+        torch.save(self.agent.state_dict(), self.checkpoint)
+        print(f"Model saved to {self.checkpoint}")
 
     def load(self):
-        with open(self.checkpoint, 'r') as inp:
-            for param, line in zip(self.agent.parameters(), inp):
-                data = list(map(float, line.strip().split()))
-                param.data.copy_(torch.tensor(data))
-
-    def vscore(self, raw, env):
-        # Dummy method for VS score calculation
-        pass
+        self.agent.load_state_dict(torch.load(self.checkpoint))
+        self.sync()  # Synchronize the target network with the agent network
+        print(f"Model loaded from {self.checkpoint}")
 
 # Example usage:
 if __name__ == "__main__":
-    tickers = ["AAPL", "MSFT", "GOOGL"]
+    tickers = ["AAPL", "GOOGL", "MSFT"]
     indicators = ["indicator1", "indicator2"]
-    seed = torch.manual_seed(42)
-    path = "./checkpoint.pth"
+    seed = torch.manual_seed(42)  # Your seed value
+    path = "./checkpoints/model_weights.txt"  # Your checkpoint file path
+    shape = [(len(indicators) * LOOK_BACK, len(tickers))]  # Example shape, adjust as needed
 
-    model = Quant(tickers, indicators, seed, path)
-    model.init([[500, 500], [500, 500], [500, 500], [500, 500], [500, 500], [500, 3]])
-    model.build()
-    model.test()
-    model.run()
+    quant = Quant(tickers, indicators, seed, path)
+    quant.init(shape)
+    quant.build()
+    quant.test()
+    quant.run()

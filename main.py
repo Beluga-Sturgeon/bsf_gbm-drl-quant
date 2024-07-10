@@ -11,9 +11,14 @@ indicators = ["SPY", "IEF", "EUR=X", "CL=F"]
 mode = ""
 checkpoint = "./checkpoint.pth"  # Default checkpoint path
 seed = torch.manual_seed(random.randint(1, 10000))
+seed = random.randint(1, 10000)
 
 def boot(args):
     global mode, tickers, checkpoint
+    device = 0 if torch.cuda.is_available() else "cpu"
+    if device == 0:
+        torch.cuda.set_device(0)
+    print("Using deivce: ", device)
     print(args)
     mode = args[1]
     tickers = args[2:-1]

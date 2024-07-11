@@ -45,16 +45,11 @@ class Quant:
 
         merge = "./data/merge.csv"
         raw = read_csv(merge)
-        print("raw data:", raw)
         env = [[] for _ in range(len(raw) + 1)]
-        print("initial env:", env)
-
-        threads = []
 
         def vscore_wrapper(raw_row, env_row, seed):
-            print("starting vscore with raw_row:", raw_row)
             vscore(raw_row, env_row, seed)
-            print("finished vscore with env_row:", env_row)
+            print("finished vscore")
 
 
         for i in range(len(raw)):

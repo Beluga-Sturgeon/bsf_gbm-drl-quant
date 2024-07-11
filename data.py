@@ -23,12 +23,12 @@ def normal(mat, seed):
     torch.manual_seed(seed)
     normal_dist = torch.distributions.Normal(0, 1)
     mat_tensor = torch.as_tensor(mat, dtype=torch.float32)
-    return normal_dist.sample(mat_tensor.shape).tolist()
+    return normal_dist.sample(mat_tensor.shape)
 
 def cumsum(mat):
     mat_tensor = torch.as_tensor(mat, dtype=torch.float32)
     cumsum_tensor = torch.cumsum(mat_tensor.clone().detach(), dim=1)  # Cumulative sum along the rows
-    return cumsum_tensor.tolist()
+    return cumsum_tensor
 
 def fix_dsp(path):
     import os

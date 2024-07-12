@@ -207,8 +207,12 @@ void Quant::test() {
             for(unsigned int i = 1; i < env.size(); i++)
                 out << state[LOOK_BACK*i-1] << ",";
             out << action << "," << benchmark << "," << model << "\n";
-            std::cout << "T=" << t << " @ " << ticker << " ACTION=" << action << " ";
-            std::cout << "DIFF=" << diff << " BENCH=" << benchmark << " MODEL=" << model << "\n";
+
+            if (t % 500 == 0) {
+                std::cout << "T=" << t << " @ " << ticker << " ACTION=" << action << " ";
+                std::cout << "DIFF=" << diff << " BENCH=" << benchmark << " MODEL=" << model << "\n";
+
+            }
         }
 
         out.close();

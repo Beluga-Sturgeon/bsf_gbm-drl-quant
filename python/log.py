@@ -24,6 +24,7 @@ ticker = process_string(path)
 if not os.path.exists(f"./res/{ticker}_log"):
     with open(f"./res/{ticker}_log", 'w') as file:
         file.write('')
+
 log = pd.read_csv(f"./res/{ticker}_log")
 
 plt.figure(figsize=(30,20))

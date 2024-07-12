@@ -28,7 +28,9 @@ class Quant:
         self.seed = seed
         self.action_space = [-1.0, 0.0, 1.0]  # short, idle, long
 
-    def init(self, shape):
+        self.init()
+
+    def init(self, shape = [[500,500], [500,500], [500,500], [500,500], [500,500],[500,3]]):
         self.agent = Net()
         self.target = Net()
         for l in range(len(shape)):
@@ -64,17 +66,23 @@ class Quant:
         for i in range(1, len(env)):
             dat = env[i][t + 1 - LOOK_BACK:t + 1]
             state.extend(dat)
-        return state
+        
+        state_tensor = torch.tensor(state, dtype=torch.float32)  # Convert to a PyTorch tensor
+        return state_tensor
 
     def greedy(self, state):
-        q_values = self.agent.predict(state)
+        
+        q_values = self.agent.forward(state)
+        q_values = q_values.detach().numpy()
         action = np.argmax(q_values)
-        return action
+        return action, q_values[action]
 
     def epsilon_greedy(self, state, eps):
         if random.random() < eps:
             print("(E) ", end='')
-            return random.randint(0, len(self.action_space) - 1)
+            action = random.randint(0, len(self.action_space) - 1)
+            q_values = self.agent.forward(state)
+            return action, q_values[action]
         else:
             print("(P) ", end='')
             return self.greedy(state)
@@ -118,15 +126,14 @@ class Quant:
                 START = LOOK_BACK - 1
                 END = len(env[TICKER]) - 2
                 for t in range(START, END + 1):
-                    print(f"Processing time step: {t}")
                     if experiences <= CAPACITY:
                         EPS = (EPS_MIN - EPS_INIT) * experiences / CAPACITY + EPS_INIT
+                        
                     state = self.sample_state(env, t)
-                    action = self.epsilon_greedy(state, EPS)
-                    q_value = self.agent.layer(-1).node(action).sum()
+                    action, q_value = self.epsilon_greedy(state, EPS)
 
                     next_state = self.sample_state(env, t + 1)
-                    next_q_values = self.target.predict(next_state)
+                    next_q_values = self.target.forward(next_state)
 
                     diff = (env[TICKER][t + 1] - env[TICKER][t]) / env[TICKER][t]
                     observed_reward = self.action_space[action] if diff >= 0.0 else -self.action_space[action]
@@ -169,8 +176,22 @@ class Quant:
         self.optimizer.zero_grad()
         q_values = self.agent(state)
         
+        # Calculate the MSE loss
         loss = F.mse_loss(q_values[memory.action], optimal)
-        loss.backward()
+
+        # Regularization term for L2 regularization (weight decay)
+        l2_reg = torch.tensor(0.0, dtype=torch.float32)
+        for param in self.agent.parameters():
+            l2_reg += torch.norm(param, 2)
+        
+        # Total loss includes MSE loss and L2 regularization term
+        total_loss = loss + LAMBDA * l2_reg
+        
+        total_loss.backward()
+        
+        # Manually adjust learning rate by scaling gradients with alpha
+        for param in self.agent.parameters():
+            param.grad.data *= alpha
         
         self.optimizer.step()
 

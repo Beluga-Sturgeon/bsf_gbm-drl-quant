@@ -27,5 +27,15 @@ class Net(nn.Module):
     def init(self, seed):
         torch.manual_seed(seed)
         for layer in self.layers:
+            layer:nn.Linear
             nn.init.kaiming_uniform_(layer.weight, nonlinearity='relu')
             nn.init.zeros_(layer.bias)
+
+
+
+    def get_layer_output(self, x, layer_index):
+        for i, layer in enumerate(self.layers):
+            x = relu(layer(x)) if i < len(self.layers) - 1 else layer(x)
+            if i == layer_index:
+                break
+        return x

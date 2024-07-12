@@ -11,8 +11,9 @@ def returns(raw):
     return (raw[1:] - raw[:-1]) / raw[:-1]
 
 def vscore(raw, v, seed):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     torch.manual_seed(seed)
-    raw = torch.as_tensor(raw, dtype=torch.float32).clone().detach()
+    raw = torch.as_tensor(raw, dtype=torch.float32).clone().detach().to(device)
 
     for t in range(OBS - 1, len(raw)):
         temp = raw[t + 1 - OBS: t + 1]

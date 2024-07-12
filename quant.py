@@ -37,6 +37,7 @@ class Quant:
             in_features, out_features = shape[l]
             self.agent.add_layer(in_features, out_features)
             self.target.add_layer(in_features, out_features)
+
         self.agent.init(seed=self.seed)
         self.sync()
 
@@ -113,22 +114,20 @@ class Quant:
                 # Write the header to the file
                 out.write(header)
                 out.flush()  # Ensure the buffer is flushed
-                os.fsync(out.fileno()) 
-
-
+                os.fsync(out.fileno())
 
                 print(f"Processing ticker: {ticker}")
                 benchmark = 1.0
                 model = 1.0
 
-                print("generating environment..")
+                print("Generating environment..")
                 env = self.generate_environment(ticker)
                 START = LOOK_BACK - 1
                 END = len(env[TICKER]) - 2
                 for t in range(START, END + 1):
                     if experiences <= CAPACITY:
                         EPS = (EPS_MIN - EPS_INIT) * experiences / CAPACITY + EPS_INIT
-                        
+
                     state = self.sample_state(env, t)
                     action, q_value = self.epsilon_greedy(state, EPS)
 
@@ -141,7 +140,9 @@ class Quant:
 
                     benchmark *= 1.0 + diff
                     model *= 1.0 + diff * self.action_space[action]
-                    out.write(",".join(map(str, state[LOOK_BACK - 1::LOOK_BACK])) + f",{action},{benchmark},{model}\n")
+                    
+                    state_numbers = [str(x.item()) for x in state[LOOK_BACK - 1::LOOK_BACK]]
+                    out.write(",".join(state_numbers) + f",{action},{benchmark},{model}\n")
 
                     RSS += (optimal - q_value) ** 2
                     experiences += 1
@@ -156,7 +157,7 @@ class Quant:
                     if len(replay) == CAPACITY:
                         indices = random.sample(range(len(replay)), BATCH_SIZE)
                         for k in indices:
-                            self.sgd(replay[k], ALPHA, LAMBDA)
+                            self.torch_sgd(replay[k], ALPHA, LAMBDA)
                         replay = replay[BATCH_SIZE:]
 
                     if experiences > CAPACITY:
@@ -167,9 +168,44 @@ class Quant:
                 subprocess.run(f"./python/log.py {ticker}-train", shell=True)
 
         self.save()
-        print("done")
+        print("Done")
 
     def sgd(self, memory, alpha, LAMBDA):
+        state = torch.tensor(memory.state, dtype=torch.float32)
+        optimal = torch.tensor(memory.optimal, dtype=torch.float32)
+        
+        self.optimizer.zero_grad()
+        q_values = self.agent(state)
+        
+        for l in range(len(self.agent.layers) - 1, -1, -1):
+            partial_gradient = 0.0
+            for n in range(self.agent.layers[l].out_features):
+                if l == len(self.agent.layers) - 1 and n != memory.action:
+                    continue
+                else:
+                    if l == len(self.agent.layers) - 1:
+                        partial_gradient = -2.0 * (optimal - q_values[n])
+                    else:
+                        partial_gradient = self.agent.layers[l].err() * self.relu_prime(self.agent.layers[l].sum())
+                    
+                    updated_bias = self.agent.layers[l].bias - alpha * partial_gradient
+                    self.agent.layers[l].bias.data = updated_bias
+
+                    for i in range(self.agent.layers[l].in_features):
+                        if l == 0:
+                            gradient = partial_gradient * state[i]
+                        else:
+                            gradient = partial_gradient * self.agent.layers[l - 1].act()
+                            self.agent.layers[l - 1].add_err(partial_gradient * self.agent.layers[l].weight[i])
+                        
+                        gradient += LAMBDA * self.agent.layers[l].weight[i]
+
+                        updated_weight = self.agent.layers[l].weight[i] - alpha * gradient
+                        self.agent.layers[l].weight[i].data = updated_weight
+        
+        self.optimizer.step()
+
+    def torch_sgd(self, memory, alpha, LAMBDA):
         state = torch.tensor(memory.state, dtype=torch.float32)
         optimal = torch.tensor(memory.optimal, dtype=torch.float32)
         

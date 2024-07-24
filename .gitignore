@@ -2,3 +2,6 @@
 *.smp
 .DS_Store
 apikey
+
+
+venv

@@ -38,6 +38,7 @@ def download(ticker: str):
 
 def main(ticker: str):
     toDisplay = download(ticker)
+    print(toDisplay)
 
     df = toDisplay.last('6M')
     y = df['close'].fillna(method='ffill')
@@ -97,7 +98,8 @@ def main(ticker: str):
     results["Close"] = resultsShifted["Open"]
     final = pd.concat([toDisplay, results], sort=False, join="inner")
     csv_df = final.to_csv()
-
+    print(final)
+    print("DONE")
     # Plotting the data
     plt.figure(figsize=(14, 7))
     plt.plot(final.index, final['close'], label='Actual')

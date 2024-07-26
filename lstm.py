@@ -38,6 +38,7 @@ def download(ticker: str):
 
 def main(ticker: str):
     toDisplay = download(ticker)
+    print("TODISPLAY:")
     print(toDisplay)
 
     df = toDisplay.last('6M')
@@ -89,26 +90,36 @@ def main(ticker: str):
     df_future['Forecast'] = Y_.flatten()
     df_future['Actual'] = np.nan
 
-    results = df_past.append(df_future).set_index('Date')
+    print(df_past)
+    print(df_future)
+
+    results = pd.concat([df_past, df_future], ignore_index=True)
     results = results[results["Forecast"].notna()]
+    print(results)
     results["Open"] = results["Forecast"]
     results["High"] = results["Forecast"]
     results["Low"] = results["Forecast"]
     resultsShifted = results.shift(-1)
     results["Close"] = resultsShifted["Open"]
-    final = pd.concat([toDisplay, results], sort=False, join="inner")
-    csv_df = final.to_csv()
-    print(final)
+    results.set_index('Date', inplace=True)
+    print("END:", results)
+
+    # Combine the DataFrames
+    results = results[['Open', 'High', 'Low', 'Close']].rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'})
+    toDisplay = toDisplay[['open', 'high', 'low', 'close']]
+    combined = pd.concat([toDisplay, results])
+
+    csv_df = results.to_csv()
     print("DONE")
     # Plotting the data
     plt.figure(figsize=(14, 7))
-    plt.plot(final.index, final['close'], label='Actual')
-    plt.plot(results.index, results['Forecast'], label='Forecast', linestyle='--')
+    plt.plot(results['close'], label='Forecast', linestyle='--')
+    plt.plot(toDisplay['close'], label='Historical')
     plt.xlabel('Date')
     plt.ylabel('Price')
     plt.title(f'{ticker} Price Prediction')
     plt.legend()
-    plt.grid()
+    plt.grid()  
     plt.show()
 
 
